@@ -1,0 +1,158 @@
+#EJEMPLO DE ANÁLISIS DISCRIMINANTE
+#ASIGNATURA: Análisis de Datos Multivariantes
+#AUTORES: Silvia Nathalia Mantilla / Samuel Martínez Hernández
+
+library(ggplot2)
+library(ggpubr)
+library(scatterplot3d)
+library(reshape2)
+library(knitr)
+library(dplyr)
+library(biotools)
+
+## En primer lugar importamos los datos de insectos con características
+## anatómicas (Longitud de la Pata, Abdomen y Organo Sexual)
+## y la correspondiente especie de los mismos
+
+input <- ("
+especie pata abdomen organo_sexual
+          a 191 131 53
+          a 185 134 50
+          a 200 137 52
+          a 173 127 50
+          a 171 128 49
+          a 160 118 47
+          a 188 134 54
+          a 186 129 51
+          a 174 131 52
+          a 163 115 47
+          b 186 107 49
+          b 211 122 49
+          b 201 144 47
+          b 242 131 54
+          b 184 108 43
+          b 211 118 51
+          b 217 122 49
+          b 223 127 51
+          b 208 125 50
+          b 199 124 46
+          ")
+datos <- read.table(textConnection(input), header = TRUE)
+
+
+## ANÁLISIS ESTADÍSTICO BÁSICO
+
+## Realizamos una exploración gráfica de los datos, comparando la
+## distribución de la longitud de patas, abdomen y organo sexual, con cada especie
+p1 <- ggplot(data = datos, aes(x = pata, fill = especie)) +
+  geom_histogram(position = "identity", alpha = 0.5)
+p2 <- ggplot(data = datos, aes(x = abdomen, fill = especie)) +
+  geom_histogram(position = "identity", alpha = 0.5)
+p3 <- ggplot(data = datos, aes(x = organo_sexual, fill = especie)) +
+  geom_histogram(position = "identity", alpha = 0.5)
+ggarrange(p1, p2, p3, nrow = 3, common.legend = TRUE)
+
+
+## Realizamos un gráfico de dos dimensiones con pares de todas las variables,
+## con el fin de mirar la distribución de las especies en Patas vs. Abdomen,
+## Abdomen vs. Órgano_Sexual, Pata vs. Órgano Sexal
+pairs(x = datos[, c("pata","abdomen","organo_sexual")],
+      col = c("firebrick", "green3")[datos$especie], pch = 19)
+
+
+## Realizamos un gráfico de tres dimensiones para visualizar el comportamiento
+## de las especies en relación a las tres características
+## x:pata ; y:abdomen ; Z:organo_sexual
+scatterplot3d(datos$pata, datos$abdomen, datos$organo_sexual,
+              color = c("firebrick", "green3")[datos$especie], pch = 19,
+              grid = TRUE, xlab = "pata", ylab = "abdomen",
+              zlab = "organo sexual", angle = 65, cex.axis = 0.6)
+legend("topleft",
+       bty = "n", cex = 0.8,
+       title = "Especie",
+       c("a", "b"), fill = c("firebrick", "green3"))
+
+
+## VERIFICACIÓN DE CONDICIÓN DE NORMALIDAD
+
+## Ahora se realiza una representación mediante Histograma de cada variable para cada especie
+## Esto nos permite verificar que se cumple el principio de normalidad
+par(mfcol = c(2, 3))
+for (k in 2:4) {
+  j0 <- names(datos)[k]
+#br0 <- seq(min(datos[, k]), max(datos[, k]), le = 11)
+  x0 <- seq(min(datos[, k]), max(datos[, k]), le = 50)
+  for (i in 1:2) {
+    i0 <- levels(datos$especie)[i]
+    x <- datos[datos$especie == i0, j0]
+    hist(x, proba = T, col = grey(0.8), main = paste("especie", i0),
+         xlab = j0)
+    lines(x0, dnorm(x0, mean(x), sd(x)), col = "red", lwd = 2)
+  }
+}
+
+
+# Se realiza una representación de cuantiles normales de cada variable para cada especie
+for (k in 2:4) {
+  j0 <- names(datos)[k]
+  x0 <- seq(min(datos[, k]), max(datos[, k]), le = 50)
+  for (i in 1:2) {
+    i0 <- levels(datos$especie)[i]
+    x <- datos[datos$especie == i0, j0]
+    qqnorm(x, main = paste("especie", i0, j0), pch = 19, col = i + 1)
+    qqline(x)
+  }
+}
+
+# Se calculan el contraste de normalidad Shapiro-Wilk para cada variable en cada especie
+## Esto nos permite verificar que se cumple el principio de normalidad
+datos_tidy <- melt(datos, value.name = "valor")
+kable(datos_tidy %>% group_by(especie, variable) %>% summarise(p_value_Shapiro.test = shapiro.test(valor)$p.value))
+
+
+# Misma operación con aggregate
+## (recordemos) Esto nos permite verificar que se cumple el principio de normalidad
+aggregate(formula = valor ~ especie + variable, data = datos_tidy,
+          FUN = function(x){shapiro.test(x)$p.value})
+
+
+# VERIFICACIÓN DE PRINCIPIO DE HOMOCEDASTICIDAD (IGUALDAD DE VARIANZAS)
+
+## Usamos la librería (biotools) para calcular las matrices de covarianza
+boxM(data = datos[, 2:4], grouping = datos[, 1])
+
+
+
+
+#ESTIMACIÓN DE PARÁMETROS DE LA FUNCIÓN DENSIDAD Y CÁLCULO DE LA FUNCIÓN DISCRIMINANTE
+
+#Se usa la función lda del paquete MASS. lda realiza la clasificación mediante la aproximación de Fisher.
+modelo_lda <- lda(formula = especie ~ pata + abdomen + organo_sexual,
+                  data = datos)
+
+
+## Una vez obtenidas las funciones discriminantes, podemos clasificar un nuevo insecto en función de sus medidas.
+## Por ejemplo, un nuevo insecto cuyas medidas sean: pata = 194, abdomen = 124, organo_sexual = 49.
+
+nuevas_observaciones <- data.frame(pata = 194, abdomen = 124,
+                                   organo_sexual = 49)
+predict(object = modelo_lda, newdata = nuevas_observaciones)
+
+
+##En lo anterior, podemos observar que la probabilidad de que el nuevo insecto pertenezca a la especie b es del 94.2%
+##frente al 5.8% de que pertenezca a la especie a.
+
+##EVALUACIÓN DE LOS ERRORES DE CLASIFICACIÓN
+
+##Empleamos las mismas observaciones con las que se ha generado el modelo discriminante (trainig data),
+#la precisión de clasificación es del 100%.
+
+predicciones <- predict(object = modelo_lda, newdata = datos[, -1],
+                        method = "predictive")
+table(datos$especie, predicciones$class,
+      dnn = c("Clase real", "Clase predicha"))
+
+##Si hubiesen mayor cantidad de datos disponibles, seria posible realizar una clasificación del error
+##por medio de la función test error
+trainig_error <- mean(datos$especie != predicciones$class) * 100
+paste("trainig_error=", trainig_error, "%")
